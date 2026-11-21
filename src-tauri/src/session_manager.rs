@@ -1086,8 +1086,14 @@ impl SessionManager {
       .ok_or_else(|| "当前账号浏览器不可用".to_string())?;
     let origin = Url::parse(get_provider(provider_id).info.entry_url)
       .map_err(|_| "服务入口地址无效".to_string())?;
-    let cookies = webview.cookies_for_url(origin)
-      .map_err(|err| format!("读取当前账号 Cookie 失败: {err}"))?;
+    // WebView2 cookie retrieval can deadlock on its UI thread. Keep it off
+    // the Tauri command dispatcher while the runtime performs the request.
+    let cookies = tokio::task::spawn_blocking(move || {
+      webview.cookies_for_url(origin)
+        .map_err(|err| format!("读取当前账号 Cookie 失败: {err}"))
+    })
+    .await
+    .map_err(|err| format!("读取 Cookie 任务失败: {err}"))??;
     let cookie_count = cookies.len();
     Ok(SessionCookieExport {
       provider_id,
