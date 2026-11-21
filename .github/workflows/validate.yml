@@ -47,3 +47,16 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml
       - name: Check Rust code
         run: cargo check --manifest-path src-tauri/Cargo.toml
+      - name: Install NSIS
+        if: matrix.os == 'windows-2025'
+        run: choco install nsis -y
+      - name: Build Windows NSIS installer
+        if: matrix.os == 'windows-2025'
+        run: npm run tauri -- build --target x86_64-pc-windows-msvc --bundles nsis --ci
+      - name: Upload Windows installer
+        if: matrix.os == 'windows-2025'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-nsis-test
+          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
