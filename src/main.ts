@@ -657,6 +657,7 @@ function renderMiddleContent(state: ManagerSnapshot, provider: ProviderInfo): st
     ? `
       ${androidUpdateBtn}
       ${!isAndroid ? `<button id="sync-all-btn" class="ghost-icon-btn" type="button" title="刷新已就绪账号额度">${ICON_REFRESH}</button>` : ""}
+      ${!isAndroid && state.activeAccount?.providerId === provider.id ? `<button id="export-cookies-btn" class="ghost-icon-btn" type="button" title="复制当前账号 Cookie（敏感信息，请勿分享）">Cookie</button>` : ""}
       <button id="open-site-btn" class="ghost-icon-btn" type="button" title="在浏览器中打开 ${escapeHtml(provider.shortName)} 官网">${ICON_EXTERNAL}</button>
       <button id="add-account-btn" class="icon-btn primary" type="button">+ 新增</button>
     `
@@ -948,6 +949,22 @@ function bindEvents(state: ManagerSnapshot, provider: ProviderInfo): void {
   document.querySelector("#open-site-btn")?.addEventListener("click", openOfficial);
   document.querySelector("#stage-open-site-btn")?.addEventListener("click", openOfficial);
 
+  document.querySelector("#export-cookies-btn")?.addEventListener("click", async () => {
+    const active = snapshot?.activeAccount;
+    if (!active || busy) return;
+    if (!window.confirm("Cookie 等同于登录凭据，泄露可能导致账号被接管。只复制当前账号的 Cookie 到本机剪贴板，确定继续？")) return;
+    try {
+      const data = await invoke<{ cookieHeader: string; cookieCount: number }>("export_account_cookies", { providerId: active.providerId, uuid: active.uuid });
+      if (!data.cookieCount || !data.cookieHeader) {
+        window.alert("当前账号没有可读取的 Cookie，请先完成登录。");
+        return;
+      }
+      await navigator.clipboard.writeText(data.cookieHeader);
+      window.alert(`已复制 ${data.cookieCount} 条 Cookie。剪贴板包含敏感登录信息，请及时清理。`);
+    } catch (err) {
+      window.alert(`复制登录信息失败：${String(err)}`);
+    }
+  });
   document.querySelector("#sync-all-btn")?.addEventListener("click", async () => {
     const btn = document.querySelector("#sync-all-btn");
     btn?.classList.add("spinning");

@@ -142,8 +142,30 @@ fn is_embedded_widget_url(url: &Url, host: &str) -> bool {
 
 pub fn classify_top_level_url(provider_id: ProviderId, url: &Url, allow_blank: bool) -> NavigationDecision {
   let raw = url.as_str();
-  if raw == "about:srcdoc" || raw.starts_with("blob:https://") {
+  if raw == "about:srcdoc" {
     return NavigationDecision::AllowBlank;
+  }
+  // Blob URLs inherit the origin of the document that created them.
+  // Never accept arbitrary HTTPS-backed blob origins as trusted content.
+  if let Some(inner) = raw.strip_prefix("blob:") {
+    let Ok(inner_url) = Url::parse(inner) else {
+      return NavigationDecision::Deny;
+    };
+    if inner_url.scheme() != "https" {
+      return NavigationDecision::Deny;
+    }
+    let Some(host) = inner_url.host_str() else {
+      return NavigationDecision::Deny;
+    };
+    let spec = get_provider(provider_id);
+    return if spec.info.callback_origins.iter().any(|origin| {
+      Url::parse(origin).ok().and_then(|parsed| parsed.host_str().map(str::to_owned))
+        .is_some_and(|allowed| host_matches(host, &allowed))
+    }) {
+      NavigationDecision::AllowBlank
+    } else {
+      NavigationDecision::Deny
+    };
   }
   if allow_blank && raw == "about:blank" {
     return NavigationDecision::AllowBlank;
@@ -177,4 +199,36 @@ pub fn is_verified_callback_origin(provider_id: ProviderId, url: &Url) -> bool {
     .callback_origins
     .iter()
     .any(|allowed| allowed.eq_ignore_ascii_case(&origin))
+}
+
+#[cfg(test)]
+mod navigation_security_tests {
+  use super::*;
+
+  fn decision(provider: ProviderId, url: &str) -> NavigationDecision {
+    classify_top_level_url(provider, &Url::parse(url).unwrap(), false)
+  }
+
+  #[test]
+  fn allows_provider_owned_blob_only() {
+    assert_eq!(
+      decision(ProviderId::Muse, "blob:https://muse.ai/12345678-0000-0000-0000-000000000000"),
+      NavigationDecision::AllowBlank
+    );
+    assert_eq!(
+      decision(ProviderId::Muse, "blob:https://evil.example/12345678-0000-0000-0000-000000000000"),
+      NavigationDecision::Deny
+    );
+    assert_eq!(
+      decision(ProviderId::Hark, "blob:https://muse.ai/12345678-0000-0000-0000-000000000000"),
+      NavigationDecision::Deny
+    );
+  }
+
+  #[test]
+  fn blocks_insecure_and_deceptive_hosts() {
+    assert_eq!(decision(ProviderId::Muse, "http://muse.ai/"), NavigationDecision::Deny);
+    assert_eq!(decision(ProviderId::Muse, "https://muse.ai.evil.example/"), NavigationDecision::Deny);
+    assert_eq!(decision(ProviderId::Muse, "https://accounts.google.com/"), NavigationDecision::ExternalGoogleOAuth);
+  }
 }

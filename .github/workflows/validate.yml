@@ -1,0 +1,62 @@
+name: Validate changes
+
+on:
+  push:
+    branches: ["feat/**"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+  rust:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+      - name: Test Rust code
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Check Rust code
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+      - name: Install NSIS
+        if: matrix.os == 'windows-2025'
+        run: choco install nsis -y
+      - name: Build Windows NSIS installer
+        if: matrix.os == 'windows-2025'
+        run: npm run tauri -- build --target x86_64-pc-windows-msvc --bundles nsis --ci
+      - name: Upload Windows installer
+        if: matrix.os == 'windows-2025'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-nsis-test
+          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error

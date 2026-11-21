@@ -886,6 +886,27 @@ const IDENTITY_PROBE_JS: &str = r#"(() => {
   }
 })()"#;
 
+/// Credentials remain in their isolated WebView profile. This export is created only
+/// when explicitly requested by the local manager and is never persisted by the app.
+#[cfg(desktop)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCookieExport {
+  pub provider_id: ProviderId,
+  pub uuid: String,
+  pub cookie_count: usize,
+  pub cookie_header: String,
+}
+
+#[cfg(desktop)]
+fn format_cookie_header(cookies: &[tauri::webview::Cookie<'static>]) -> String {
+  cookies
+    .iter()
+    .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
+    .collect::<Vec<_>>()
+    .join("; ")
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ManagerSnapshot {
@@ -1035,6 +1056,51 @@ impl SessionManager {
   pub async fn get_snapshot(&self) -> ManagerSnapshot {
     let locked = self.inner.lock().await;
     Self::snapshot_from_locked(&locked)
+  }
+
+  /// Export cookies belonging to the currently active account's WebView only.
+  /// Do not call from a synchronous Tauri command on Windows (WebView2 deadlock).
+  #[cfg(desktop)]
+  pub async fn export_account_cookies(
+    &self,
+    app: &AppHandle,
+    raw_provider: &str,
+    raw_uuid: &str,
+  ) -> Result<SessionCookieExport, String> {
+    let provider_id = ProviderId::parse(raw_provider)
+      .ok_or_else(|| "未知服务".to_string())?;
+    let uuid = normalize_uuid(raw_uuid).ok_or_else(|| "无效账号 UUID".to_string())?;
+    let key = AccountKey { provider_id, uuid: uuid.clone() };
+    let label = {
+      let locked = self.inner.lock().await;
+      let active = locked.active_slot.as_ref()
+        .is_some_and(|slot| slot.committed && slot.account_key == key);
+      if !active {
+        return Err("只能导出当前正在使用的账号，请先切换到该账号".to_string());
+      }
+      locked.warm_pool.get(&key)
+        .map(|entry| entry.webview_label.clone())
+        .ok_or_else(|| "账号浏览器尚未就绪".to_string())?
+    };
+    let webview = app.get_webview(&label)
+      .ok_or_else(|| "当前账号浏览器不可用".to_string())?;
+    let origin = Url::parse(get_provider(provider_id).info.entry_url)
+      .map_err(|_| "服务入口地址无效".to_string())?;
+    // WebView2 cookie retrieval can deadlock on its UI thread. Keep it off
+    // the Tauri command dispatcher while the runtime performs the request.
+    let cookies = tokio::task::spawn_blocking(move || {
+      webview.cookies_for_url(origin)
+        .map_err(|err| format!("读取当前账号 Cookie 失败: {err}"))
+    })
+    .await
+    .map_err(|err| format!("读取 Cookie 任务失败: {err}"))??;
+    let cookie_count = cookies.len();
+    Ok(SessionCookieExport {
+      provider_id,
+      uuid,
+      cookie_count,
+      cookie_header: format_cookie_header(&cookies),
+    })
   }
 
   pub async fn run_startup_tasks(self: &Arc<Self>, app: &AppHandle) {
@@ -3139,10 +3205,10 @@ impl SessionManager {
       if !entry_ok || locked.pending_external_auth.is_some() {
         locked.pending_external_auth = None;
       }
-      locked.notice = Some(
-        "Google OAuth 按政策禁止内嵌 WebView，且系统浏览器回跳暂无法绑定到当前独立浏览资料，请使用邮箱、手机号或已验收方式登录"
-          .to_string(),
-      );
+      locked.notice = Some(match key.provider_id {
+        ProviderId::Hark => "Hark 的 Google 登录不支持当前内置 WebView；外部浏览器登录也不会自动导入到独立账号环境。请在 Hark 登录页选择电子邮件继续。".to_string(),
+        ProviderId::Muse => "Google 登录不允许在当前内置 WebView 中完成；请使用 Muse 支持的邮箱或手机号登录。".to_string(),
+      });
       Some(Self::snapshot_from_locked(&locked))
     };
 
