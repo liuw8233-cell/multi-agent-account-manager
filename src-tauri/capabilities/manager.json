@@ -2,8 +2,13 @@
   "identifier": "manager-local-only",
   "description": "Grant account management commands strictly to the local manager webview",
   "local": true,
-  "windows": ["main", "manager"],
-  "webviews": ["manager"],
+  "windows": [
+    "main",
+    "manager"
+  ],
+  "webviews": [
+    "manager"
+  ],
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
@@ -20,6 +25,7 @@
     "allow-trigger-quota-sync",
     "allow-check-for-updates",
     "allow-download-and-install-update",
-    "allow-open-external-url"
+    "allow-open-external-url",
+    "allow-export-account-cookies"
   ]
 }
