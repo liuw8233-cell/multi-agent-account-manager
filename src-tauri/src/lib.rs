@@ -96,6 +96,17 @@ async fn dismiss_notice(mgr: State<'_, Arc<SessionManager>>) -> Result<ManagerSn
   Ok(mgr.dismiss_notice().await)
 }
 
+#[cfg(desktop)]
+#[tauri::command]
+async fn export_account_cookies(
+  app: AppHandle,
+  mgr: State<'_, Arc<SessionManager>>,
+  provider_id: String,
+  uuid: String,
+) -> Result<session_manager::SessionCookieExport, String> {
+  mgr.export_account_cookies(&app, &provider_id, &uuid).await
+}
+
 #[tauri::command]
 async fn trigger_quota_sync(
   app: AppHandle,
@@ -210,6 +221,8 @@ pub fn run() {
       resolve_uuid_conflict,
       dismiss_notice,
       trigger_quota_sync,
+      #[cfg(desktop)]
+      export_account_cookies,
       check_for_updates,
       download_and_install_update,
       open_external_url,
