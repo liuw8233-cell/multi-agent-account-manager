@@ -3199,10 +3199,10 @@ impl SessionManager {
       if !entry_ok || locked.pending_external_auth.is_some() {
         locked.pending_external_auth = None;
       }
-      locked.notice = Some(
-        "Google OAuth 按政策禁止内嵌 WebView，且系统浏览器回跳暂无法绑定到当前独立浏览资料，请使用邮箱、手机号或已验收方式登录"
-          .to_string(),
-      );
+      locked.notice = Some(match key.provider_id {
+        ProviderId::Hark => "Hark 的 Google 登录不支持当前内置 WebView；外部浏览器登录也不会自动导入到独立账号环境。请在 Hark 登录页选择电子邮件继续。".to_string(),
+        ProviderId::Muse => "Google 登录不允许在当前内置 WebView 中完成；请使用 Muse 支持的邮箱或手机号登录。".to_string(),
+      });
       Some(Self::snapshot_from_locked(&locked))
     };
 
