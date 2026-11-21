@@ -12,6 +12,14 @@
 - 限制 `blob:` 顶层导航：仅允许 URL 内嵌的 HTTPS 来源与当前服务的已验证回调来源对应，避免任意 `blob:https://... ` 获得跳转许可。
 - 加入基础单元测试，覆盖本服务 blob、跨服务 blob、外部域名、HTTP 和 Google OAuth 路由。
 
+## 已实现：本地手动 Cookie 读取
+
+桌面端在当前活跃账号登录后提供 `Cookie` 按钮，用户确认后通过 Tauri WebView `cookies_for_url` 读取当前服务入口的 Cookie（含 HttpOnly），复制到本机剪贴板；不自动上传、不写入 `accounts.json`、不打印日志。Android 未提供此功能。必须注意：剪贴板中的登录凭据可被其他本机应用读取，使用后应清理。
+
+## Hark Google 登录的已知限制
+
+Hark 在系统 WebView 的 Google 登录流程可能提示“此版本的 Hark 应用无法使用 Google 登录”。当前程序会拦截 Google OAuth WebView 导航，避免违反第三方安全策略。打开系统浏览器可以完成正常的 Google 授权，但 **不能自动把授权后的登录态回传到 Hark 独立 WebView**；只有 Hark 官方提供可用的原生客户端 OAuth 回调或其他受支持的授权方式，才能真正闭环。现阶段请使用 Hark 邮箱登录。不能通过修改 User-Agent 冒充 Chrome 来声称修复此限制。
+
 ## 后续实施的最小安全接口
 
 `ProviderAdapter` 应仅提供：
